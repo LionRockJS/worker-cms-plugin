@@ -87,7 +87,8 @@ export class CmsClient {
     this.base = options.cmsUrl.replace(/\/+$/, '');
     this.secret = options.pluginSecret;
     this.pluginId = options.pluginId;
-    this.fetcher = 'fetcher' in options && options.fetcher ? options.fetcher : fetch;
+    const fetcher = 'fetcher' in options && options.fetcher ? options.fetcher : globalThis.fetch;
+    this.fetcher = (input, init) => fetcher.call(globalThis, input, init);
   }
 
   private async call(method: string, path: string, body?: unknown): Promise<Response> {
