@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   CmsApiError,
   CmsClient,
@@ -39,6 +39,24 @@ function page(overrides: Partial<CmsPage>): CmsPage {
 }
 
 describe('CmsClient', () => {
+  it('calls the default Worker fetch as a global property', async () => {
+    let fetchThis: unknown;
+    vi.stubGlobal('fetch', function (this: unknown, input: RequestInfo | URL): Promise<Response> {
+      fetchThis = this;
+      expect(String(input)).toBe('https://cms.test/__cms/pages?page_type=event&limit=1');
+      return Promise.resolve(Response.json({ pages: [], total: 0 }));
+    } as typeof fetch);
+
+    const cms = new CmsClient({
+      cmsUrl: 'https://cms.test',
+      pluginSecret: 'shared-secret',
+      pluginId: 'events',
+    });
+
+    await expect(cms.list('event', { limit: 1 })).resolves.toEqual({ pages: [], total: 0 });
+    expect(fetchThis).toBe(globalThis);
+  });
+
   it('sends CMS API requests with plugin headers and a safe fetch binding', async () => {
     let fetchThis: unknown;
     let requestUrl = '';
