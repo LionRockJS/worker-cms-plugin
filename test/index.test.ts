@@ -94,6 +94,28 @@ describe('CmsClient', () => {
     });
   });
 
+  it('serializes multi-value pointer filters for list calls', async () => {
+    let requestUrl = '';
+    const fetcher = ((input: RequestInfo | URL): Promise<Response> => {
+      requestUrl = String(input);
+      return Promise.resolve(Response.json({ pages: [], total: 0 }));
+    }) as typeof fetch;
+
+    const cms = new CmsClient({
+      cmsUrl: 'https://cms.test/',
+      pluginSecret: 'shared-secret',
+      pluginId: 'events',
+      fetcher,
+    });
+
+    await cms.list('guest', {
+      pointer: { key: 'mail_list', values: [12, 13] },
+      q: '陳',
+    });
+
+    expect(requestUrl).toBe('https://cms.test/__cms/pages?page_type=guest&pointer_key=mail_list&pointer_values=12%2C13&q=%E9%99%B3');
+  });
+
   it('writes pages and batches through the expected CMS endpoints', async () => {
     const calls: Array<{ input: string; init?: RequestInit }> = [];
     const fetcher = ((input: RequestInfo | URL, init?: RequestInit) => {

@@ -41,6 +41,10 @@ export interface CmsPageInput {
   tags?: number[];
 }
 
+export type CmsListPointer =
+  | { key: string; value: number | string }
+  | { key: string; values: Array<number | string> };
+
 export interface CmsUser {
   id?: string;
   email?: string;
@@ -125,13 +129,17 @@ export class CmsClient {
 
   async list(
     pageType: string,
-    opts: { parentId?: number; pointer?: { key: string; value: number }; q?: string; limit?: number; offset?: number } = {},
+    opts: { parentId?: number; pointer?: CmsListPointer; q?: string; limit?: number; offset?: number } = {},
   ): Promise<{ pages: CmsPage[]; total: number }> {
     const params = new URLSearchParams({ page_type: pageType });
     if (opts.parentId != null) params.set('page_id', String(opts.parentId));
     if (opts.pointer) {
       params.set('pointer_key', opts.pointer.key);
-      params.set('pointer_value', String(opts.pointer.value));
+      if ('values' in opts.pointer) {
+        params.set('pointer_values', opts.pointer.values.map(String).join(','));
+      } else {
+        params.set('pointer_value', String(opts.pointer.value));
+      }
     }
     if (opts.q) params.set('q', opts.q);
     if (opts.limit != null) params.set('limit', String(opts.limit));
