@@ -1,3 +1,20 @@
+export {
+  allTenants,
+  clearTenantCache,
+  requireTenant,
+  soleTenant,
+  tenantById,
+  tenantByRef,
+  tenantClientEnv,
+  tenantRef,
+  timingSafeEqualStr,
+  type Tenant,
+  type TenantConfig,
+  type TenantEnvVars,
+  type TenantRegistryEnv,
+} from './tenants';
+import { timingSafeEqualStr } from './tenants';
+
 export interface CmsClientEnv {
   CMS_URL?: string;
   PLUGIN_SECRET?: string;
@@ -272,7 +289,7 @@ export function requirePluginSecret(request: Request, secret: string | undefined
       headers: { 'cache-control': 'no-store' },
     });
   }
-  if (request.headers.get('x-plugin-secret') !== secret) {
+  if (!timingSafeEqualStr(request.headers.get('x-plugin-secret') ?? '', secret)) {
     return new Response('forbidden', {
       status: 403,
       headers: { 'cache-control': 'no-store' },
