@@ -1,6 +1,6 @@
 {
   "name": "@lionrockjs/worker-cms-plugin",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
@@ -9,6 +9,9 @@
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     }
+  },
+  "bin": {
+    "cms-plugin-kv-setup": "./scripts/kv-setup.mjs"
   },
   "scripts": {
     "test": "vitest run",
