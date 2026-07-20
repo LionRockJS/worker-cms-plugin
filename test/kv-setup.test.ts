@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 // The script is plain Node ESM; import its pure helpers for testing.
-import { parseBinding, parseNamespaceId, setKvNamespaceId } from '../scripts/kv-setup.mjs';
+import { deriveTitle, parseBinding, parseNamespaceId, setKvNamespaceId, workerName } from '../scripts/kv-setup.mjs';
 
 const ID = 'abcdef0123456789abcdef0123456789';
 const ID2 = '00000000000000000000000000000000';
@@ -43,6 +43,31 @@ describe('parseBinding', () => {
   });
   it('reads --binding NAME', () => {
     expect(parseBinding(['--binding', 'SESSIONS'])).toBe('SESSIONS');
+  });
+});
+
+describe('workerName', () => {
+  it('reads the name field', () => {
+    expect(workerName('name = "worker-cms-plugin-events"\n')).toBe('worker-cms-plugin-events');
+  });
+  it('returns null when absent', () => {
+    expect(workerName('main = "src/index.ts"\n')).toBeNull();
+  });
+});
+
+describe('deriveTitle', () => {
+  const toml = 'name = "worker-cms-plugin-import-export"\n';
+  it('defaults to <worker name>-<binding> so titles stay unique per account', () => {
+    expect(deriveTitle([], toml, 'TENANTS', 'fallback')).toBe('worker-cms-plugin-import-export-TENANTS');
+  });
+  it('falls back to <fallback>-<binding> when wrangler.toml has no name', () => {
+    expect(deriveTitle([], 'main = "x"', 'TENANTS', 'my-plugin')).toBe('my-plugin-TENANTS');
+  });
+  it('honours --title=NAME', () => {
+    expect(deriveTitle(['--title=custom'], toml, 'TENANTS', 'fb')).toBe('custom');
+  });
+  it('honours --title NAME', () => {
+    expect(deriveTitle(['--title', 'custom'], toml, 'TENANTS', 'fb')).toBe('custom');
   });
 });
 

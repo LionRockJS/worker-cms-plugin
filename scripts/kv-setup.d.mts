@@ -9,3 +9,9 @@ export function parseNamespaceId(output: string, preview: boolean): string | nul
 
 /** Read `--binding=NAME` / `--binding NAME` from argv, defaulting to TENANTS. */
 export function parseBinding(argv: string[]): string;
+
+/** Read the worker `name = "..."` from a wrangler.toml string, or null. */
+export function workerName(text: string): string | null;
+
+/** The account-unique namespace title to create: --title, else `<worker>-<binding>`. */
+export function deriveTitle(argv: string[], wranglerText: string, binding: string, fallback: string): string;

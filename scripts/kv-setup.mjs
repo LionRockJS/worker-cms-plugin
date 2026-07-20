@@ -10,19 +10,23 @@
 //   npm run kv:setup                     # production namespace  -> sets `id`
 //   npm run kv:setup:preview             # preview namespace     -> sets `preview_id`
 //   npm run kv:setup -- --binding=CACHE  # a binding other than the default TENANTS
+//   npm run kv:setup -- --title=my-name  # override the account-unique title
 //
 // `wrangler kv namespace create` only prints the id; this wraps it so the id
 // lands in the [[kv_namespaces]] block automatically (uncommenting it if it is
-// still the commented template). Idempotent -- re-running just overwrites the id.
+// still the commented template).
 //
-// The wrangler.toml acted on is the one in the current working directory, i.e.
-// the plugin that invoked the command, not this shared package.
+// The namespace TITLE (unique per Cloudflare account) defaults to
+// `<worker name>-<binding>`, so every plugin can bind its own namespace as the
+// same shared binding (e.g. TENANTS) without the titles colliding. The
+// wrangler.toml acted on is the one in the current working directory, i.e. the
+// plugin that invoked the command, not this shared package.
 // ============================================================
 
 import { spawnSync } from 'node:child_process';
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
 
 /**
  * Read the `binding = "X"` value out of a [[kv_namespaces]] block (commented or
@@ -115,15 +119,42 @@ export function parseBinding(argv) {
   return 'TENANTS';
 }
 
+/** Read the worker `name = "..."` from a wrangler.toml string, or null. */
+export function workerName(text) {
+  return text.match(/^\s*name\s*=\s*"([^"]+)"/m)?.[1] ?? null;
+}
+
+/**
+ * The account-unique namespace TITLE to create. `--title=NAME` wins; otherwise
+ * `<worker name>-<binding>` (the fleet convention -- wrangler does not prefix the
+ * worker name, so a bare "TENANTS" title collides across plugins), falling back
+ * to `<fallback>-<binding>` when wrangler.toml has no name. The title only has to
+ * be unique per Cloudflare account; the binding wired into wrangler.toml is
+ * separate, so every plugin can still bind its namespace as "TENANTS".
+ */
+export function deriveTitle(argv, wranglerText, binding, fallback) {
+  const eq = argv.find((a) => a.startsWith('--title='));
+  if (eq) return eq.slice('--title='.length) || `${fallback}-${binding}`;
+  const idx = argv.indexOf('--title');
+  if (idx !== -1 && argv[idx + 1]) return argv[idx + 1];
+  return `${workerName(wranglerText) ?? fallback}-${binding}`;
+}
+
 function main() {
   const preview = process.argv.includes('--preview');
   const key = preview ? 'preview_id' : 'id';
-  const binding = parseBinding(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  const binding = parseBinding(argv);
   // Act on the calling plugin's wrangler.toml, not this shared package's.
   const wranglerPath = resolve(process.cwd(), 'wrangler.toml');
+  let tomlText = '';
+  try { tomlText = readFileSync(wranglerPath, 'utf8'); } catch { /* created below */ }
+  // The namespace title must be unique per Cloudflare account; the binding it is
+  // wired to in wrangler.toml stays the shared name (e.g. TENANTS).
+  const title = deriveTitle(argv, tomlText, binding, basename(process.cwd()));
 
-  // 1. Create the namespace.
-  const args = ['kv', 'namespace', 'create', binding, ...(preview ? ['--preview'] : [])];
+  // 1. Create the namespace under its unique title.
+  const args = ['kv', 'namespace', 'create', title, ...(preview ? ['--preview'] : [])];
   console.log(`$ wrangler ${args.join(' ')}\n`);
   const res = spawnSync('wrangler', args, { encoding: 'utf8' });
   process.stdout.write(res.stdout ?? '');
@@ -141,8 +172,9 @@ function main() {
   }
 
   // 3. Write it into the [[kv_namespaces]] block, uncommenting the template.
-  writeFileSync(wranglerPath, setKvNamespaceId(readFileSync(wranglerPath, 'utf8'), key, id, binding));
+  writeFileSync(wranglerPath, setKvNamespaceId(tomlText, key, id, binding));
   console.log(`\nwrangler.toml updated: [[kv_namespaces]] binding = "${binding}", ${key} = "${id}"`);
+  console.log(`Namespace title: ${title}${preview ? ' (preview)' : ''}`);
   console.log(preview
     ? '\nPreview namespace ready for `wrangler dev`.'
     : '\nProduction namespace ready. Run `npm run deploy` when the plugin is ready.');

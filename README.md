@@ -23,9 +23,16 @@ creates a KV namespace and writes its id into the plugin's own `wrangler.toml`
 npm run kv:setup                     # production namespace -> sets `id`
 npm run kv:setup:preview             # preview namespace    -> sets `preview_id`
 npm run kv:setup -- --binding=CACHE  # a binding other than the default TENANTS
+npm run kv:setup -- --title=my-name  # override the account-unique title
 ```
+
+The namespace **title** (unique per Cloudflare account) defaults to
+`<worker name>-<binding>` — e.g. `worker-cms-plugin-events-TENANTS` — so every
+plugin can bind its own namespace as the same shared `TENANTS` binding without
+the titles colliding (`wrangler` does not prefix the worker name, so a bare
+`TENANTS` title collides across plugins). The **binding** written into
+`wrangler.toml` is separate and stays whatever `--binding` says.
 
 It uncomments the commented `[[kv_namespaces]]` template if present, matches an
 existing block by binding, and otherwise appends a new block — so a plugin with
 several KV namespaces can run it once per binding without clobbering the others.
-Re-running is idempotent.
