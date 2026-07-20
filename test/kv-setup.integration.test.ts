@@ -5,6 +5,10 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+// The package types against @cloudflare/workers-types, not @types/node; this
+// integration test needs a couple of Node globals, declared minimally here.
+declare const process: { execPath: string; env: Record<string, string | undefined> };
+
 // Regression guard for the bin's "run only when invoked directly" check: the
 // script ships as the cms-plugin-kv-setup bin, so npm runs it through a symlink
 // in node_modules/.bin. main() must still fire (and write wrangler.toml) even
