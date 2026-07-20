@@ -20,7 +20,7 @@
 // ============================================================
 
 import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 
@@ -149,4 +149,13 @@ function main() {
 }
 
 // Run only when invoked directly; importing (tests) just gets the pure helpers.
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) main();
+// argv[1] may be a symlink (this ships as the `cms-plugin-kv-setup` bin, so npm
+// runs it through node_modules/.bin), whereas import.meta.url is the real path --
+// resolve both to real paths before comparing, or main() never fires via the bin.
+function isDirectRun() {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  const real = (p) => { try { return realpathSync(p); } catch { return p; } };
+  return real(entry) === real(fileURLToPath(import.meta.url));
+}
+if (isDirectRun()) main();
