@@ -33,6 +33,22 @@ export interface CmsClientOptions {
   fetcher?: typeof fetch;
 }
 
+export type CmsRequestMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+
+export interface CmsRequestOptions {
+  body?: unknown;
+  actingUserId?: number | string;
+}
+
+/**
+ * Stable structural contract used by optional feature decorators.
+ *
+ * Feature packages can depend on this shape rather than a CmsClient version.
+ */
+export interface CmsApiTransport {
+  request<T>(method: CmsRequestMethod, path: string, options?: CmsRequestOptions): Promise<T>;
+}
+
 export interface CmsPage {
   id: number;
   uuid: string;
@@ -81,6 +97,8 @@ export class CmsApiError extends Error {
     public code: string,
     public method = '',
     public path = '',
+    /** Parsed JSON error response body, when the CMS returned one. */
+    public detail?: unknown,
   ) {
     const target = method && path ? ` ${method} ${path}` : '';
     super(`CMS API${target} ${status}: ${code}`);
@@ -95,7 +113,7 @@ export class CmsNotConfiguredError extends Error {
   }
 }
 
-export class CmsClient {
+export class CmsClient implements CmsApiTransport {
   private readonly base: string;
   private readonly secret: string;
   private readonly pluginId: string;
@@ -120,34 +138,54 @@ export class CmsClient {
       : (input, init) => globalThis.fetch(input, init);
   }
 
-  private async call(method: string, path: string, body?: unknown): Promise<Response> {
+  /** Builds one authenticated request to the host's plugin API. */
+  private async call(method: string, path: string, body?: unknown, actingUserId?: number | string): Promise<Response> {
     return this.fetcher(`${this.base}/__cms${path}`, {
       method,
       headers: {
         'x-plugin-secret': this.secret,
         'x-plugin-id': this.pluginId,
+        ...(actingUserId !== undefined && actingUserId !== null ? { 'x-acting-user-id': String(actingUserId) } : {}),
         ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   }
 
+  /** Parses a successful JSON response or throws a structured CmsApiError. */
   private async json<T>(res: Response, method = '', path = ''): Promise<T> {
     if (!res.ok) {
-      const code = await res.text()
+      const failure = await res.text()
         .then((text) => {
-          if (!text) return 'error';
+          if (!text) return { code: 'error', detail: undefined as unknown };
           try {
             const body = JSON.parse(text) as { error?: unknown };
-            return typeof body.error === 'string' && body.error ? body.error : 'error';
+            const code = typeof body.error === 'string' && body.error ? body.error : 'error';
+            return { code, detail: body as unknown };
           } catch {
-            return text.replace(/\s+/g, ' ').trim().slice(0, 160) || 'error';
+            return { code: text.replace(/\s+/g, ' ').trim().slice(0, 160) || 'error', detail: undefined as unknown };
           }
         })
-        .catch(() => 'error');
-      throw new CmsApiError(res.status, code, method, path);
+        .catch(() => ({ code: 'error', detail: undefined as unknown }));
+      throw new CmsApiError(res.status, failure.code, method, path, failure.detail);
     }
     return res.json() as Promise<T>;
+  }
+
+  /**
+   * Authenticated feature-route transport. Optional feature decorators use
+   * this method without needing access to the client's constructor or fields.
+   */
+  async request<T>(
+    method: CmsRequestMethod,
+    path: string,
+    options: CmsRequestOptions = {},
+  ): Promise<T> {
+    return this.json(
+      await this.call(method, path, options.body, options.actingUserId),
+      method,
+      path,
+    );
   }
 
   async list(

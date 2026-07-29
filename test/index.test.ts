@@ -94,6 +94,38 @@ describe('CmsClient', () => {
     });
   });
 
+  it('exposes an authenticated transport for optional feature decorators', async () => {
+    let requestUrl = '';
+    let requestInit: RequestInit | undefined;
+    const cms = new CmsClient({
+      cmsUrl: 'https://cms.test',
+      pluginSecret: 'shared-secret',
+      pluginId: 'events',
+      fetcher: ((input: RequestInfo | URL, init?: RequestInit) => {
+        requestUrl = String(input);
+        requestInit = init;
+        return Promise.resolve(Response.json({ ok: true }));
+      }) as typeof fetch,
+    });
+
+    await expect(cms.request<{ ok: true }>('POST', '/optional/action', {
+      body: { quantity: 2 },
+      actingUserId: 501,
+    })).resolves.toEqual({ ok: true });
+
+    expect(requestUrl).toBe('https://cms.test/__cms/optional/action');
+    expect(requestInit).toMatchObject({
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-acting-user-id': '501',
+        'x-plugin-id': 'events',
+        'x-plugin-secret': 'shared-secret',
+      },
+      body: JSON.stringify({ quantity: 2 }),
+    });
+  });
+
   it('serializes multi-value pointer filters for list calls', async () => {
     let requestUrl = '';
     const fetcher = ((input: RequestInfo | URL): Promise<Response> => {
@@ -163,6 +195,7 @@ describe('CmsClient', () => {
       code: 'bad_page_type',
       method: 'GET',
       path: '/pages/99',
+      detail: { error: 'bad_page_type' },
     } satisfies Partial<CmsApiError>);
   });
 });
