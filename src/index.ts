@@ -21,6 +21,15 @@ export {
 } from './tenants';
 import { timingSafeEqualStr } from './tenants';
 
+export {
+  PluginState,
+  clearPluginStateCache,
+  pluginState,
+  type PluginStateEntry,
+  type PluginStateEnv,
+  type PluginStateOptions,
+} from './state';
+
 export interface CmsClientEnv {
   CMS_URL?: string;
   PLUGIN_SECRET?: string;
