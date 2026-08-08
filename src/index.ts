@@ -93,6 +93,44 @@ export type CmsListPointer =
   | { key: string; value: number | string }
   | { key: string; values: Array<number | string> };
 
+export type CmsPageListSort = 'weight' | 'name' | 'created_at' | 'updated_at' | 'published_at';
+
+export interface CmsPageListGroupBy {
+  tag_taxonomy: string;
+  include_untagged?: boolean;
+}
+
+export interface CmsPageListQuery {
+  key: string;
+  page_type: string;
+  limit: number;
+  sort: CmsPageListSort;
+  order: 'asc' | 'desc';
+  group_by?: CmsPageListGroupBy;
+}
+
+export interface CmsPageResourceTag {
+  id: number;
+  slug: string;
+  name: string;
+  weight: number;
+  taxonomy_slug: string;
+  parent_tag: number | null;
+  created_at: string;
+  updated_at: string;
+  lect: Record<string, unknown>;
+}
+
+export interface CmsPageResourceGroup {
+  tag: CmsPageResourceTag | null;
+  pages: CmsPage[];
+}
+
+export interface CmsPageResourceCollection {
+  pages: CmsPage[];
+  groups: CmsPageResourceGroup[];
+}
+
 export interface CmsUser {
   id?: string;
   email?: string;
@@ -216,6 +254,17 @@ export class CmsClient implements CmsApiTransport {
     if (opts.offset != null) params.set('offset', String(opts.offset));
     const path = `/pages?${params.toString()}`;
     return this.json(await this.call('GET', path), 'GET', path);
+  }
+
+  async listMany(queries: CmsPageListQuery[]): Promise<{
+    pages_by_type: Record<string, CmsPageResourceCollection>;
+  }> {
+    const path = '/pages/list-batch';
+    return this.json(
+      await this.call('POST', path, { queries }),
+      'POST',
+      path,
+    );
   }
 
   async get(id: number): Promise<CmsPage> {

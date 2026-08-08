@@ -148,6 +148,47 @@ describe('CmsClient', () => {
     expect(requestUrl).toBe('https://cms.test/__cms/pages?page_type=guest&pointer_key=mail_list&pointer_values=12%2C13&q=%E9%99%B3');
   });
 
+  it('lists several page types through one generic batch-read request', async () => {
+    let requestUrl = '';
+    let requestInit: RequestInit | undefined;
+    const fixture = page({ page_type: 'service', name: 'Consultation' });
+    const cms = new CmsClient({
+      cmsUrl: 'https://cms.test',
+      pluginSecret: 'shared-secret',
+      pluginId: 'events',
+      fetcher: ((input: RequestInfo | URL, init?: RequestInit) => {
+        requestUrl = String(input);
+        requestInit = init;
+        return Promise.resolve(Response.json({
+          pages_by_type: {
+            service: { pages: [fixture], groups: [] },
+            news: { pages: [], groups: [] },
+          },
+        }));
+      }) as typeof fetch,
+    });
+    const queries = [
+      {
+        key: 'service', page_type: 'service', limit: 60, sort: 'weight', order: 'asc',
+        group_by: { tag_taxonomy: 'categories', include_untagged: true },
+      },
+      { key: 'news', page_type: 'news', limit: 6, sort: 'published_at', order: 'desc' },
+    ] as const;
+
+    await expect(cms.listMany([...queries])).resolves.toEqual({
+      pages_by_type: {
+        service: { pages: [fixture], groups: [] },
+        news: { pages: [], groups: [] },
+      },
+    });
+    expect(requestUrl).toBe('https://cms.test/__cms/pages/list-batch');
+    expect(requestInit).toMatchObject({
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ queries }),
+    });
+  });
+
   it('writes pages and batches through the expected CMS endpoints', async () => {
     const calls: Array<{ input: string; init?: RequestInit }> = [];
     const fetcher = ((input: RequestInfo | URL, init?: RequestInit) => {
