@@ -91,6 +91,34 @@ GitHub App identity values, while still allowing a tenant-specific KV override.
 Connection fields such as `CMS_URL` and `PLUGIN_SECRET` are reserved and
 ignored.
 
+### Authenticated tenant variable configuration
+
+Plugins that expose editable per-tenant variables can mount the shared handler
+at `/__plugin/tenants/config`:
+
+```ts
+import { handleTenantConfig } from '@lionrockjs/worker-cms-plugin';
+
+if (path === '/__plugin/tenants/config') {
+  return handleTenantConfig(request, env, {
+    tenantVars: MANIFEST.tenantVars,
+  });
+}
+```
+
+The endpoint requires both `x-cms-tenant` and the matching `x-plugin-secret`
+for the same KV tenant record. `GET` returns only the declared variables:
+
+```json
+{ "ok": true, "tenant": "https://cms.example.com", "vars": { "EMAIL_FROM": "" } }
+```
+
+`PUT` accepts a partial update in the form `{ "vars": { "EMAIL_FROM":
+"events@example.com", "SIGN_KEY": null } }`. `null` (and the CMS form's blank
+value) removes a variable. Undeclared variables and connection fields are never
+changed, and the endpoint refuses the legacy `CMS_URL`/`PLUGIN_SECRET`
+fallback because it has no KV record to edit.
+
 Guards on the unauthenticated leg: the callback target must be a public HTTPS
 origin (loopback allowed for development), redirects are not followed, the call
 is time-boxed, a `cms_url` on another origin is refused, and a best-effort

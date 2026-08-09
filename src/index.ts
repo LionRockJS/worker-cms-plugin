@@ -1,6 +1,7 @@
 export {
   allTenants,
   clearTenantCache,
+  handleTenantConfig,
   deleteTenant,
   handleTenantEnroll,
   handleTenantRevoke,
@@ -14,6 +15,7 @@ export {
   timingSafeEqualStr,
   type Tenant,
   type TenantConfig,
+  type TenantConfigOptions,
   type TenantEnrollEnv,
   type TenantEnrollOptions,
   type TenantEnvVars,

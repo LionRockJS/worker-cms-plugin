@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetEnrollThrottle,
   clearTenantCache,
+  handleTenantConfig,
   handleTenantEnroll,
   handleTenantRevoke,
   tenantById,
@@ -354,5 +355,104 @@ describe('handleTenantRevoke', () => {
       env,
     );
     expect(response.status).toBe(409);
+  });
+});
+
+describe('handleTenantConfig', () => {
+  const configRequest = (
+    method: string,
+    headers: Record<string, string>,
+    body?: unknown,
+  ) => new Request('https://plugin.example.com/__plugin/tenants/config', {
+    method,
+    headers: {
+      ...headers,
+      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+
+  it('returns only declared variables for the authenticated tenant', async () => {
+    const env = {
+      TENANTS: fakeKv({
+        [`tenant:${CMS}`]: {
+          secret: SECRET,
+          vars: { GITHUB_APP_ID: '123', GITHUB_TOKEN: 'hidden-legacy-var' },
+        },
+      }),
+    };
+
+    const response = await handleTenantConfig(
+      configRequest('GET', { 'x-cms-tenant': CMS, 'x-plugin-secret': SECRET }),
+      env,
+      { tenantVars: ['GITHUB_APP_ID', 'GITHUB_APP_SECRET'] },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      ok: true,
+      tenant: CMS,
+      vars: { GITHUB_APP_ID: '123', GITHUB_APP_SECRET: '' },
+    });
+  });
+
+  it('updates declared variables, clears null or blank values, and preserves others', async () => {
+    const kv = fakeKv({
+      [`tenant:${CMS}`]: {
+        secret: SECRET,
+        signKey: 'stable-sign-key',
+        vars: { GITHUB_APP_ID: 'old-id', GITHUB_TOKEN: 'keep-me', GITHUB_APP_SECRET: 'old-secret' },
+      },
+    });
+
+    const response = await handleTenantConfig(
+      configRequest(
+        'PUT',
+        { 'x-cms-tenant': CMS, 'x-plugin-secret': SECRET },
+        { vars: { GITHUB_APP_ID: 'new-id', GITHUB_APP_SECRET: null } },
+      ),
+      { TENANTS: kv },
+      { tenantVars: ['GITHUB_APP_ID', 'GITHUB_APP_SECRET'] },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      ok: true,
+      tenant: CMS,
+      vars: { GITHUB_APP_ID: 'new-id', GITHUB_APP_SECRET: '' },
+    });
+    const stored = JSON.parse(kv.store.get(`tenant:${CMS}`) ?? '{}') as TenantConfig;
+    expect(stored).toMatchObject({
+      secret: SECRET,
+      signKey: 'stable-sign-key',
+      vars: { GITHUB_APP_ID: 'new-id', GITHUB_TOKEN: 'keep-me' },
+    });
+    expect(stored.vars?.GITHUB_APP_SECRET).toBeUndefined();
+  });
+
+  it('rejects an undeclared variable and a wrong tenant secret', async () => {
+    const env = { TENANTS: fakeKv({ [`tenant:${CMS}`]: { secret: SECRET } }) };
+    const undeclared = await handleTenantConfig(
+      configRequest('PUT', { 'x-cms-tenant': CMS, 'x-plugin-secret': SECRET }, { vars: { GITHUB_TOKEN: 'x' } }),
+      env,
+      { tenantVars: ['GITHUB_APP_ID'] },
+    );
+    expect(undeclared.status).toBe(400);
+
+    const wrongSecret = await handleTenantConfig(
+      configRequest('GET', { 'x-cms-tenant': CMS, 'x-plugin-secret': 'wrong' }),
+      env,
+      { tenantVars: ['GITHUB_APP_ID'] },
+    );
+    expect(wrongSecret.status).toBe(403);
+  });
+
+  it('refuses configuration for the legacy env fallback', async () => {
+    const response = await handleTenantConfig(
+      configRequest('GET', { 'x-cms-tenant': CMS, 'x-plugin-secret': SECRET }),
+      { CMS_URL: CMS, PLUGIN_SECRET: SECRET },
+      { tenantVars: ['GITHUB_APP_ID'] },
+    );
+    expect(response.status).toBe(501);
   });
 });
