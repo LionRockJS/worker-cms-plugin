@@ -80,6 +80,90 @@ describe('handleTenantEnroll', () => {
     expect(fetcher).toHaveBeenCalledWith(`${CMS}/__cms/tenant/claim`, expect.objectContaining({ redirect: 'manual' }));
   });
 
+  it('copies declared plugin env vars into a new tenant record', async () => {
+    const env = {
+      TENANTS: fakeKv(),
+      GITHUB_APP_ID: '123456',
+      GITHUB_APP_SLUG: 'theme-editor',
+      GITHUB_APP_CLIENT_ID: 'Iv1.client',
+      GITHUB_APP_CLIENT_SECRET: 'client-secret',
+    };
+    const response = await handleTenantEnroll(
+      enrollRequest({ tenant: CMS, plugin_id: PLUGIN_ID, ticket: TICKET }),
+      env,
+      {
+        pluginId: PLUGIN_ID,
+        tenantVars: [
+          'GITHUB_APP_ID',
+          'GITHUB_APP_SLUG',
+          'GITHUB_APP_CLIENT_ID',
+          'GITHUB_APP_CLIENT_SECRET',
+        ],
+        fetcher: hostFetcher(),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect((await tenantById(env, CMS))?.vars).toEqual({
+      GITHUB_APP_ID: '123456',
+      GITHUB_APP_SLUG: 'theme-editor',
+      GITHUB_APP_CLIENT_ID: 'Iv1.client',
+      GITHUB_APP_CLIENT_SECRET: 'client-secret',
+    });
+  });
+
+  it('copies manifest-declared vars supplied by the CMS enrollment request', async () => {
+    const env = {
+      TENANTS: fakeKv(),
+      GITHUB_APP_ID: '123456',
+      GITHUB_APP_SLUG: 'theme-editor',
+      GITHUB_APP_CLIENT_ID: 'Iv1.client',
+      GITHUB_APP_SECRET: 'client-secret',
+    };
+    const response = await handleTenantEnroll(
+      enrollRequest({
+        tenant: CMS,
+        plugin_id: PLUGIN_ID,
+        ticket: TICKET,
+        tenant_vars: [
+          'GITHUB_APP_ID',
+          'GITHUB_APP_SLUG',
+          'GITHUB_APP_CLIENT_ID',
+          'GITHUB_APP_SECRET',
+        ],
+      }),
+      env,
+      { pluginId: PLUGIN_ID, fetcher: hostFetcher() },
+    );
+
+    expect(response.status).toBe(200);
+    expect((await tenantById(env, CMS))?.vars).toEqual({
+      GITHUB_APP_ID: '123456',
+      GITHUB_APP_SLUG: 'theme-editor',
+      GITHUB_APP_CLIENT_ID: 'Iv1.client',
+      GITHUB_APP_SECRET: 'client-secret',
+    });
+  });
+
+  it('ignores missing, malformed, and reserved declared vars', async () => {
+    const env = {
+      TENANTS: fakeKv(),
+      GITHUB_APP_ID: '123456',
+      PLUGIN_SECRET: 'do-not-copy',
+    };
+    await handleTenantEnroll(
+      enrollRequest({ tenant: CMS, plugin_id: PLUGIN_ID, ticket: TICKET }),
+      env,
+      {
+        pluginId: PLUGIN_ID,
+        tenantVars: ['GITHUB_APP_ID', 'MISSING_VAR', 'github_app_id', 'PLUGIN_SECRET'],
+        fetcher: hostFetcher(),
+      },
+    );
+
+    expect((await tenantById(env, CMS))?.vars).toEqual({ GITHUB_APP_ID: '123456' });
+  });
+
   it('stores nothing when the claimed origin has no matching ticket', async () => {
     const env = { TENANTS: fakeKv() };
     const response = await handleTenantEnroll(
@@ -155,14 +239,20 @@ describe('handleTenantEnroll', () => {
           secret: 'old-secret',
           signKey: 'stable-sign-key',
           publicBaseUrl: 'https://rsvp.example.com',
-          vars: { EMAIL_FROM: 'events@example.com' },
+          vars: { EMAIL_FROM: 'events@example.com', GITHUB_APP_ID: 'tenant-specific-id' },
         },
       }),
+      GITHUB_APP_ID: 'deployment-id',
+      GITHUB_APP_SLUG: 'theme-editor',
     };
     const response = await handleTenantEnroll(
       enrollRequest({ tenant: CMS, plugin_id: PLUGIN_ID, ticket: TICKET }),
       env,
-      { pluginId: PLUGIN_ID, fetcher: hostFetcher() },
+      {
+        pluginId: PLUGIN_ID,
+        tenantVars: ['GITHUB_APP_ID', 'GITHUB_APP_SLUG'],
+        fetcher: hostFetcher(),
+      },
     );
 
     expect(response.status).toBe(200);
@@ -172,6 +262,8 @@ describe('handleTenantEnroll', () => {
     expect(tenant?.signKey).toBe('stable-sign-key');
     expect(tenant?.publicBaseUrl).toBe('https://rsvp.example.com');
     expect(tenant?.vars.EMAIL_FROM).toBe('events@example.com');
+    expect(tenant?.vars.GITHUB_APP_ID).toBe('tenant-specific-id');
+    expect(tenant?.vars.GITHUB_APP_SLUG).toBe('theme-editor');
   });
 
   it('refuses new tenants past the configured cap', async () => {

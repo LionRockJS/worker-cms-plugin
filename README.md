@@ -46,13 +46,19 @@ instead, without ever exposing the plugin to "anyone can become a tenant":
 ```ts
 import { handleTenantEnroll, handleTenantRevoke, requireTenant } from '@lionrockjs/worker-cms-plugin';
 
-const MANIFEST = { id: 'events', name: 'Events', version: '1.0.0', autoTenant: true };
+const MANIFEST = {
+  id: 'events',
+  name: 'Events',
+  version: '1.0.0',
+  autoTenant: true,
+  tenantVars: ['GITHUB_APP_ID', 'GITHUB_APP_SLUG', 'GITHUB_APP_CLIENT_ID', 'GITHUB_APP_SECRET'],
+};
 
 if (path === '/__plugin/tenants/enroll') {
-  return handleTenantEnroll(request, env, { pluginId: 'events' });
+  return handleTenantEnroll(request, env, { pluginId: MANIFEST.id });
 }
 if (path === '/__plugin/tenants/revoke') {
-  return handleTenantRevoke(request, env, { pluginId: 'events' });
+  return handleTenantRevoke(request, env, { pluginId: MANIFEST.id });
 }
 ```
 
@@ -63,7 +69,9 @@ and neither grants anything by itself.
 
 How a request is authenticated with no secret in it:
 
-1. The CMS POSTs `{tenant, plugin_id, ticket}`. Nothing is stored yet.
+1. The CMS POSTs `{tenant, plugin_id, ticket}` and, when the manifest declares
+   them, a `tenant_vars` list containing variable names only. Nothing is stored
+   yet.
 2. The plugin calls `POST {tenant}/__cms/tenant/claim` to redeem the ticket —
    **the plugin picks the destination**, so claiming to be someone else's CMS
    just asks that CMS for a ticket it never issued. Only this response, over a
@@ -71,6 +79,17 @@ How a request is authenticated with no secret in it:
 3. The record is written to `tenant:<origin>`. Re-enrollment rotates the secret
    and `cmsUrl` while preserving operator-managed `signKey`, `publicBaseUrl`,
    and `vars`.
+
+`tenantVars` is an optional manifest/handler declaration for plugin environment
+variable names that should be copied into a newly enrolled record's `vars`.
+When the request comes from the CMS, the host's validated manifest declaration
+is sent as `tenant_vars`, so the handler does not need to duplicate the list.
+The handler may still pass `tenantVars` for a fixed declaration or a caller
+outside the CMS. Only non-empty string values are copied, and existing tenant
+values win during rotation. This is useful for deployment-wide defaults such as
+GitHub App identity values, while still allowing a tenant-specific KV override.
+Connection fields such as `CMS_URL` and `PLUGIN_SECRET` are reserved and
+ignored.
 
 Guards on the unauthenticated leg: the callback target must be a public HTTPS
 origin (loopback allowed for development), redirects are not followed, the call
