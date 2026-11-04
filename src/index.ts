@@ -109,6 +109,9 @@ export interface CmsPageListQuery {
   sort: CmsPageListSort;
   order: 'asc' | 'desc';
   group_by?: CmsPageListGroupBy;
+  /** Top-level lect scalar to filter on; requires field_values (compared as text). */
+  field_key?: string;
+  field_values?: readonly string[];
 }
 
 export interface CmsPageResourceTag {

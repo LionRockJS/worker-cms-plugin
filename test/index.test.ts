@@ -172,7 +172,10 @@ describe('CmsClient', () => {
         key: 'service', page_type: 'service', limit: 60, sort: 'weight', order: 'asc',
         group_by: { tag_taxonomy: 'categories', include_untagged: true },
       },
-      { key: 'news', page_type: 'news', limit: 6, sort: 'published_at', order: 'desc' },
+      {
+        key: 'news', page_type: 'news', limit: 6, sort: 'published_at', order: 'desc',
+        field_key: 'status', field_values: ['live'],
+      },
     ] as const;
 
     await expect(cms.listMany([...queries])).resolves.toEqual({
