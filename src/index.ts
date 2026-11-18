@@ -1,3 +1,30 @@
+import type {
+  CmsBatchUpdateInput,
+  CmsBatchUpdateResult,
+  CmsContentMeta,
+  CmsDeleteChildPagesInput,
+  CmsDeleteChildPagesResult,
+  CmsDuplicatePagesInput,
+  CmsDuplicatePagesResult,
+  CmsEnsureTagInput,
+  CmsEnsureTagsResult,
+  CmsFileListOptions,
+  CmsFileListResult,
+  CmsFileUploadResult,
+  CmsIngestSubmissionsResult,
+  CmsLimit,
+  CmsListOptions,
+  CmsPageField,
+  CmsPageListResult,
+  CmsPageWithTags,
+  CmsPublishPagesResult,
+  CmsSearchQuery,
+  CmsSearchResult,
+  CmsSequence,
+} from './api-types';
+
+export type * from './api-types';
+
 export {
   allTenants,
   clearTenantCache,
@@ -75,6 +102,7 @@ export interface CmsPage {
   updated_at: string;
   lect: Record<string, unknown>;
   tags?: number[];
+  isPublished?: boolean;
 }
 
 export interface CmsPageInput {
@@ -89,6 +117,9 @@ export interface CmsPageInput {
   timezone?: string | null;
   page_id?: number | null;
   tags?: number[];
+  version_action?: string;
+  /** Exact stored lect required before a single-page update can proceed. */
+  if_lect?: Record<string, unknown>;
 }
 
 export type CmsListPointer =
@@ -112,6 +143,10 @@ export interface CmsPageListQuery {
   /** Top-level lect scalar to filter on; requires field_values (compared as text). */
   field_key?: string;
   field_values?: readonly string[];
+  range_key?: string;
+  range_from?: string;
+  range_to?: string;
+  ids?: readonly number[];
 }
 
 export interface CmsPageResourceTag {
@@ -191,21 +226,36 @@ export class CmsClient implements CmsApiTransport {
   }
 
   /** Builds one authenticated request to the host's plugin API. */
-  private async call(method: string, path: string, body?: unknown, actingUserId?: number | string): Promise<Response> {
+  private fetchCms(
+    method: CmsRequestMethod | 'HEAD',
+    path: string,
+    { body, contentType, actingUserId }: {
+      body?: BodyInit;
+      contentType?: string;
+      actingUserId?: number | string;
+    } = {},
+  ): Promise<Response> {
     return this.fetcher(`${this.base}/__cms${path}`, {
       method,
       headers: {
         'x-plugin-secret': this.secret,
         'x-plugin-id': this.pluginId,
         ...(actingUserId !== undefined && actingUserId !== null ? { 'x-acting-user-id': String(actingUserId) } : {}),
-        ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
+        ...(contentType !== undefined ? { 'content-type': contentType } : {}),
       },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body,
     });
   }
 
-  /** Parses a successful JSON response or throws a structured CmsApiError. */
-  private async json<T>(res: Response, method = '', path = ''): Promise<T> {
+  private call(method: CmsRequestMethod, path: string, body?: unknown, actingUserId?: number | string): Promise<Response> {
+    return this.fetchCms(method, path, {
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      contentType: body !== undefined ? 'application/json' : undefined,
+      actingUserId,
+    });
+  }
+
+  private async checkedResponse(res: Response, method: string, path: string): Promise<Response> {
     if (!res.ok) {
       const failure = await res.text()
         .then((text) => {
@@ -221,7 +271,11 @@ export class CmsClient implements CmsApiTransport {
         .catch(() => ({ code: 'error', detail: undefined as unknown }));
       throw new CmsApiError(res.status, failure.code, method, path, failure.detail);
     }
-    return res.json() as Promise<T>;
+    return res;
+  }
+
+  private async json<T>(res: Response, method: string, path: string): Promise<T> {
+    return (await this.checkedResponse(res, method, path)).json() as Promise<T>;
   }
 
   /**
@@ -240,10 +294,14 @@ export class CmsClient implements CmsApiTransport {
     );
   }
 
+  list(pageType: string, opts: CmsListOptions & { fields: readonly [CmsPageField, ...CmsPageField[]] }): Promise<CmsPageListResult<Partial<CmsPage>>>;
+  list(pageType: string, opts: CmsListOptions & { includeTags: true; fields?: undefined }): Promise<CmsPageListResult<CmsPageWithTags>>;
+  list(pageType: string, opts?: CmsListOptions & { includeTags?: false; fields?: undefined }): Promise<CmsPageListResult>;
+  list(pageType: string, opts: CmsListOptions): Promise<CmsPageListResult<Partial<CmsPage> | CmsPageWithTags>>;
   async list(
     pageType: string,
-    opts: { parentId?: number; pointer?: CmsListPointer; q?: string; limit?: number; offset?: number } = {},
-  ): Promise<{ pages: CmsPage[]; total: number }> {
+    opts: CmsListOptions = {},
+  ): Promise<CmsPageListResult<Partial<CmsPage> | CmsPageWithTags>> {
     const params = new URLSearchParams({ page_type: pageType });
     if (opts.parentId != null) params.set('page_id', String(opts.parentId));
     if (opts.pointer) {
@@ -257,11 +315,26 @@ export class CmsClient implements CmsApiTransport {
     if (opts.q) params.set('q', opts.q);
     if (opts.limit != null) params.set('limit', String(opts.limit));
     if (opts.offset != null) params.set('offset', String(opts.offset));
+    if (opts.field) {
+      params.set('field_key', opts.field.key);
+      params.set('field_values', opts.field.values.join(','));
+    }
+    if (opts.range) {
+      params.set('range_key', opts.range.key);
+      if (opts.range.from != null) params.set('range_from', String(opts.range.from));
+      if (opts.range.to != null) params.set('range_to', String(opts.range.to));
+    }
+    if (opts.ids?.length) params.set('ids', opts.ids.join(','));
+    if (opts.slugs?.length) params.set('slugs', opts.slugs.join(','));
+    if (opts.fields?.length) params.set('fields', opts.fields.join(','));
+    if (opts.includeTags) params.set('include_tags', '1');
+    if (opts.includeLiveStatus) params.set('include_live_status', '1');
+    if (opts.count === false) params.set('count', '0');
     const path = `/pages?${params.toString()}`;
     return this.json(await this.call('GET', path), 'GET', path);
   }
 
-  async listMany(queries: CmsPageListQuery[]): Promise<{
+  async listMany(queries: readonly CmsPageListQuery[]): Promise<{
     pages_by_type: Record<string, CmsPageResourceCollection>;
   }> {
     const path = '/pages/list-batch';
@@ -272,8 +345,8 @@ export class CmsClient implements CmsApiTransport {
     );
   }
 
-  async get(id: number): Promise<CmsPage> {
-    const path = `/pages/${id}`;
+  async get(id: number, opts: { includeLiveStatus?: boolean } = {}): Promise<CmsPage> {
+    const path = `/pages/${id}${opts.includeLiveStatus ? '?include_live_status=1' : ''}`;
     const { page } = await this.json<{ page: CmsPage }>(await this.call('GET', path), 'GET', path);
     return page;
   }
@@ -294,7 +367,7 @@ export class CmsClient implements CmsApiTransport {
     await this.json(await this.call('DELETE', path), 'DELETE', path);
   }
 
-  async batchCreate(pages: CmsPageInput[]): Promise<{ created: CmsPage[]; errors: Array<{ index: number; error: string }> }> {
+  async batchCreate(pages: CmsPageInput[]): Promise<{ created: CmsPage[]; errors: Array<{ index: number; error: string }>; count: number }> {
     return this.json(await this.call('POST', '/pages/batch', { pages }), 'POST', '/pages/batch');
   }
 
@@ -304,6 +377,85 @@ export class CmsClient implements CmsApiTransport {
       await this.json(await this.call('DELETE', '/pages/batch', { ids: chunk }), 'DELETE', '/pages/batch');
     }
   }
+
+  searchPages(query: CmsSearchQuery): Promise<CmsSearchResult> {
+    return this.request('POST', '/pages/search', { body: query });
+  }
+
+  batchUpdatePages(pages: readonly CmsBatchUpdateInput[], actingUserId?: number | string): Promise<CmsBatchUpdateResult> {
+    return this.request('PATCH', '/pages/batch', { body: { pages }, actingUserId });
+  }
+
+  duplicatePages(input: CmsDuplicatePagesInput, actingUserId?: number | string): Promise<CmsDuplicatePagesResult> {
+    return this.request('POST', '/pages/duplicate', { body: input, actingUserId });
+  }
+
+  deleteChildPages(input: CmsDeleteChildPagesInput, actingUserId?: number | string): Promise<CmsDeleteChildPagesResult> {
+    return this.request('DELETE', '/pages/children', { body: input, actingUserId });
+  }
+
+  /** Requires the host's publish feature. Inspect errors for per-page outcomes. */
+  publishPages(ids: readonly number[], actingUserId?: number | string): Promise<CmsPublishPagesResult> {
+    return this.request('POST', '/pages/publish', { body: { ids }, actingUserId });
+  }
+
+  getContentMeta(types?: readonly string[]): Promise<CmsContentMeta> {
+    return this.request('GET', withQuery('/content-meta', { types: types?.join(',') }));
+  }
+
+  ensurePageTags(tags: readonly CmsEnsureTagInput[], actingUserId?: number | string): Promise<CmsEnsureTagsResult> {
+    return this.request('POST', '/tags/ensure', { body: { tags }, actingUserId });
+  }
+
+  getLimits({ pageId, pointerValue }: { pageId?: number; pointerValue?: string | number } = {}): Promise<{ limits: CmsLimit[] }> {
+    return this.request('GET', withQuery('/limits', { page_id: pageId, pointer_value: pointerValue }));
+  }
+
+  /** Runs one bounded ingestion pass. Requires publishing and a submission hook. */
+  ingestPublishedSubmissions(): Promise<CmsIngestSubmissionsResult> {
+    return this.request('POST', '/ingest/submissions');
+  }
+
+  readSequence(key: string): Promise<CmsSequence> {
+    return this.request('GET', `/sequences/${encodeURIComponent(key)}`);
+  }
+
+  advanceSequence(key: string, actingUserId?: number | string): Promise<CmsSequence> {
+    return this.request('POST', `/sequences/${encodeURIComponent(key)}/next`, { actingUserId });
+  }
+
+  listFiles(options: CmsFileListOptions = {}): Promise<CmsFileListResult> {
+    const { prefix, delimiter, limit, cursor } = options;
+    return this.request('GET', withQuery('/files', { prefix, delimiter, limit, cursor }));
+  }
+
+  /** Returns the original response, including the download stream and metadata headers. */
+  async downloadFile(key: string): Promise<Response> {
+    const path = withQuery('/files', { key });
+    return this.checkedResponse(await this.fetchCms('GET', path), 'GET', path);
+  }
+
+  /** Returns the metadata headers on the original bodyless response. */
+  async headFile(key: string): Promise<Response> {
+    const path = withQuery('/files', { key });
+    return this.checkedResponse(await this.fetchCms('HEAD', path), 'HEAD', path);
+  }
+
+  /** Sends the supplied body directly and reads the host's JSON receipt. */
+  async uploadFile(key: string, body: BodyInit, contentType?: string): Promise<CmsFileUploadResult> {
+    const path = withQuery('/files', { key });
+    return this.json(await this.fetchCms('PUT', path, { body, contentType }), 'PUT', path);
+  }
+
+}
+
+function withQuery(path: string, values: Record<string, string | number | undefined>): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(values)) {
+    if (value !== undefined) params.set(key, String(value));
+  }
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
 }
 
 export function compareByWeightThenName(a: CmsPage, b: CmsPage): number {

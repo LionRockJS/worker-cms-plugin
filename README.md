@@ -8,6 +8,40 @@ secret checks, redirects, and view asset serving. It does not render Liquid
 templates; plugin templates are exposed so Worker CMS can deliver them to the
 client. Plugin business logic belongs in each plugin Worker.
 
+## CMS API client
+
+`CmsClient` supports page listing, search, and mutations. `list()` accepts
+scalar and range filters, IDs and slugs, and field projections. Set
+`includeTags` on a full list for tag objects. `get()` returns tag IDs.
+`listMany()` accepts scalar, range, and ID filters on each query.
+
+`searchPages()`, `getContentMeta()`, `ensurePageTags()`, and `getLimits()`
+expose the host's search, metadata, tag, and quota APIs. Use `readSequence()`
+and `advanceSequence()` for host-owned counters.
+
+Inspect `errors` on successful responses from `batchUpdatePages()`,
+`publishPages()`, and `ensurePageTags()`. For `duplicatePages()`, pass back
+`next_cursor` as `cursor` until `done` is true. For `deleteChildPages()`, repeat
+the selector until `done` is true. Publication and
+`ingestPublishedSubmissions()` require the host's publishing feature.
+
+### Plugin files
+
+Declare `filePrefixes` in the plugin manifest and approve the prefixes in
+Worker CMS before using the file helpers. The host stores files in its media
+bucket. Use `listFiles()` with the returned `cursor` for paginated listings.
+
+```ts
+const key = 'reports/export.csv';
+await cms.uploadFile(key, csvBytes, 'text/csv');
+const metadata = await cms.headFile(key);
+const download = await cms.downloadFile(key);
+```
+
+`headFile()` and `downloadFile()` return the host response with its metadata
+headers. The download body can be streamed directly. File helper errors use
+`CmsApiError`, just like the JSON methods.
+
 ## `cms-plugin-kv-setup` (bin)
 
 Installing this package also gives a plugin a `cms-plugin-kv-setup` command that
